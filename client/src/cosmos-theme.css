@@ -1,0 +1,72 @@
+/* NEXSTOCK COSMOS — visual-only overlay.
+   Import this file in the existing App.jsx. It does not change app logic or API calls. */
+:root {
+  color-scheme: dark;
+  --cosmos-bg: #07080d;
+  --cosmos-panel: rgba(17, 18, 25, .94);
+  --cosmos-panel-2: #11131b;
+  --cosmos-line: rgba(215, 177, 83, .22);
+  --cosmos-gold: #d8b45a;
+  --cosmos-gold-bright: #f3d98a;
+  --cosmos-text: #f4f0e5;
+  --cosmos-muted: #a5a0a0;
+}
+html, body, #root { min-height: 100%; background: var(--cosmos-bg); color: var(--cosmos-text); }
+body {
+  background:
+    radial-gradient(ellipse at 82% 5%, rgba(100, 76, 35, .17), transparent 34%),
+    radial-gradient(ellipse at 5% 80%, rgba(35, 45, 90, .13), transparent 38%),
+    #07080d !important;
+  color: var(--cosmos-text);
+}
+body::before, body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+}
+body::before {
+  opacity: .32;
+  background-image: radial-gradient(1px 1px at 12% 18%, #f5d98d 99%, transparent), radial-gradient(1px 1px at 78% 24%, #fff 99%, transparent), radial-gradient(1.5px 1.5px at 56% 73%, #e7c875 99%, transparent), radial-gradient(1px 1px at 89% 82%, #fff 99%, transparent), radial-gradient(1px 1px at 31% 58%, #f5d98d 99%, transparent), radial-gradient(1px 1px at 67% 11%, #fff 99%, transparent);
+  background-size: 420px 360px;
+  animation: cosmos-drift 90s linear infinite;
+}
+body::after {
+  opacity: .11;
+  background: radial-gradient(circle at 85% 17%, transparent 0 72px, #d8b45a 73px 74px, transparent 75px 94px, #d8b45a 95px 96px, transparent 97px), radial-gradient(circle at 12% 88%, transparent 0 52px, #d8b45a 53px 54px, transparent 55px 74px, #d8b45a 75px 76px, transparent 77px);
+  animation: cosmos-orbit-glow 12s ease-in-out infinite alternate;
+}
+#root { position: relative; z-index: 1; }
+/* Common layout surfaces used by the existing React UI */
+.app-shell, .main-area, .page-content, main, .dashboard, .admin-dashboard { background: transparent !important; color: var(--cosmos-text); }
+.sidebar, .topbar, .panel, .stat-card, .quick-card, .help-card, .product-modal, .modal, .table-container, .admin-card, .admin-panel, .shop-card {
+  background: var(--cosmos-panel) !important;
+  border-color: var(--cosmos-line) !important;
+  color: var(--cosmos-text) !important;
+  box-shadow: 0 12px 34px rgba(0,0,0,.24), inset 0 1px 0 rgba(243,217,138,.035) !important;
+  backdrop-filter: blur(12px);
+}
+.sidebar { border-right-color: var(--cosmos-line) !important; }
+.brand strong, .mobile-brand, .welcome-row h1, h1, h2, h3, .section-heading h2, .stat-number, .stat-label, .quick-card strong, .panel strong { color: var(--cosmos-text) !important; }
+.brand strong span, .mobile-brand > span:last-child, .welcome-row h1 > span:first-child, .eyebrow, .nav-item.active, .nav-item.active .nav-icon { color: var(--cosmos-gold-bright) !important; }
+.brand-mark, .nav-icon, .quick-icon, .user-avatar, .top-avatar { background: rgba(216,180,90,.12) !important; color: var(--cosmos-gold-bright) !important; border: 1px solid rgba(216,180,90,.18); }
+.brand small, .nav-caption, .sidebar-user small, .topbar-user small, .welcome-row p, .stat-note, .section-heading p, .help-card p, .quick-card small, .nav-item, .logout-button { color: var(--cosmos-muted) !important; }
+.nav-item:hover, tbody tr:hover { background: rgba(216,180,90,.08) !important; }
+.nav-item.active { background: rgba(216,180,90,.13) !important; }
+.nav-item.active:before { background: var(--cosmos-gold) !important; }
+.button-primary, .quick-add { color: #17130a !important; background: linear-gradient(135deg, #f0d486, #b78a32) !important; border-color: #d8b45a !important; box-shadow: 0 5px 18px rgba(216,180,90,.14) !important; }
+.button-primary:hover, .quick-add:hover { filter: brightness(1.08); }
+.button-light, .outline-button, .reset-button, .table-tools select, .product-modal select { background: #14151c !important; color: var(--cosmos-gold-bright) !important; border-color: var(--cosmos-line) !important; }
+.topbar-search, .table-search, input, select, textarea { background-color: #0c0d13 !important; color: var(--cosmos-text) !important; border-color: var(--cosmos-line) !important; }
+input::placeholder, textarea::placeholder { color: #777580 !important; }
+thead { background: #171820 !important; }
+th { color: var(--cosmos-gold-bright) !important; }
+td { color: #e5e0d6 !important; border-bottom-color: rgba(215,177,83,.12) !important; }
+.stat-blue, .stat-green, .stat-yellow, .stat-pink, .quick-view, .quick-search { background: linear-gradient(135deg, rgba(30,29,28,.98), rgba(15,16,22,.98)) !important; border-color: var(--cosmos-line) !important; color: var(--cosmos-text) !important; }
+.stat-icon, .product-emoji, .category-pill { background: rgba(216,180,90,.12) !important; color: var(--cosmos-gold-bright) !important; }
+.connection-dot.online { background: #78c99b !important; box-shadow: 0 0 0 4px rgba(120,201,155,.13) !important; }
+button, a { transition: color .18s ease, background-color .18s ease, border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--cosmos-gold-bright) !important; outline-offset: 3px; }
+::selection { background: rgba(216,180,90,.35); color: white; }
+::-webkit-scrollbar-track { background: #0a0b10; }
+::-webkit-scrollbar-thumb { background: #5e4b27; border-radius: 9px; }
+@keyframes cosmos-drift { from { background-position: 0 0; } to { background-position: 420px 360px; } }
+@keyframes cosmos-orbit-glow { from { opacity: .05; transform: rotate(-2deg) scale(1); } to { opacity: .16; transform: rotate(2deg) scale(1.025); } }
+@media (prefers-reduced-motion: reduce) { body::before, body::after { animation: none !important; } *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
