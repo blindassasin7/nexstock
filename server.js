@@ -1,0 +1,42 @@
+const express = require('express');
+const cors = require('cors');
+const Database = require('better-sqlite3');
+const path = require('path');
+const crypto = require('crypto');
+const app = express();
+const PORT = Number(process.env.PORT) || 3000;
+const db = new Database(path.join(__dirname, 'inventory.db'));
+db.pragma('journal_mode = WAL'); db.pragma('foreign_keys = ON');
+app.use(cors({ origin: true })); app.use(express.json({ limit: '1mb' }));
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL DEFAULT '', email TEXT NOT NULL COLLATE NOCASE UNIQUE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, sku TEXT NOT NULL COLLATE NOCASE, category TEXT NOT NULL, price REAL NOT NULL CHECK(price >= 0), stock INTEGER NOT NULL CHECK(stock >= 0), icon TEXT NOT NULL DEFAULT '📦');
+`);
+const userCols = db.prepare('PRAGMA table_info(users)').all().map(c=>c.name);
+if (!userCols.includes('name')) db.exec("ALTER TABLE users ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+const productCols = db.prepare('PRAGMA table_info(products)').all().map(c=>c.name);
+if (!productCols.includes('user_id')) db.exec('ALTER TABLE products ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS products_user_sku ON products(user_id, sku)');
+const count = db.prepare('SELECT COUNT(*) n FROM products').get().n;
+if (!count) { const add=db.prepare('INSERT INTO products (user_id,name,sku,category,price,stock,icon) VALUES (NULL,?,?,?,?,?,?)'); add.run('Wireless Headphones','EL-1001','Electronics',2499,42,'🎧'); add.run('Mechanical Keyboard','EL-1002','Electronics',3499,8,'⌨️'); }
+function hashPassword(password, salt=crypto.randomBytes(16).toString('hex')) { const hash=crypto.scryptSync(password,salt,64).toString('hex'); return `${salt}:${hash}`; }
+function verifyPassword(password, stored) { const [salt,expected]=String(stored).split(':'); const actual=crypto.scryptSync(password,salt,64); const expectedBuf=Buffer.from(expected||'', 'hex'); return actual.length===expectedBuf.length && crypto.timingSafeEqual(actual,expectedBuf); }
+function issueSession(userId) { const token=crypto.randomBytes(32).toString('hex'); db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)').run(crypto.createHash('sha256').update(token).digest('hex'),userId,Date.now()+7*24*60*60*1000); return token; }
+function auth(req,res,next) { const raw=(req.headers.authorization||'').replace(/^Bearer\s+/i,''); if(!raw) return res.status(401).json({error:'Please log in.'}); const hash=crypto.createHash('sha256').update(raw).digest('hex'); const session=db.prepare('SELECT s.user_id,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').get(hash,Date.now()); if(!session) return res.status(401).json({error:'Session expired. Please log in again.'}); req.user={id:session.user_id,email:session.email}; next(); }
+app.post('/api/auth/register',(req,res)=>{ const name=String(req.body?.name||'').trim(); const email=String(req.body?.email||'').trim().toLowerCase(); const password=String(req.body?.password||''); if(name.length<2) return res.status(400).json({error:'Enter your full name (at least 2 characters).'}); if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:'Enter a valid email address.'}); if(password.length<8) return res.status(400).json({error:'Password must be at least 8 characters.'}); try { const info=db.prepare('INSERT INTO users(name,email,password_hash) VALUES(?,?,?)').run(name,email,hashPassword(password)); const userId=Number(info.lastInsertRowid); // Give the first account any legacy sample inventory.
+if(db.prepare('SELECT COUNT(*) n FROM users').get().n===1) db.prepare('UPDATE products SET user_id=? WHERE user_id IS NULL').run(userId);
+res.status(201).json({token:issueSession(userId),user:{id:userId,name,email}}); } catch(e) { if(String(e.code).includes('CONSTRAINT')) return res.status(409).json({error:'An account with this email already exists.'}); console.error(e); res.status(500).json({error:'Could not create account.'}); } });
+app.post('/api/auth/login',(req,res)=>{ const email=String(req.body?.email||'').trim().toLowerCase(); const password=String(req.body?.password||''); const user=db.prepare('SELECT id,name,email,password_hash FROM users WHERE email=?').get(email); if(!user||!verifyPassword(password,user.password_hash)) return res.status(401).json({error:'Email or password is incorrect.'}); res.json({token:issueSession(user.id),user:{id:user.id,name:user.name,email:user.email}}); });
+app.get('/api/auth/me',auth,(req,res)=>res.json({user:req.user}));
+app.post('/api/auth/logout',(req,res)=>{ const raw=(req.headers.authorization||'').replace(/^Bearer\s+/i,''); if(raw) db.prepare('DELETE FROM sessions WHERE token_hash=?').run(crypto.createHash('sha256').update(raw).digest('hex')); res.json({ok:true}); });
+app.get('/api/health',(req,res)=>res.json({status:'OK',message:'Inventory API is running!',database:'SQLite',authentication:true}));
+app.get('/api/products',auth,(req,res)=>res.json(db.prepare('SELECT id,name,sku,category,price,stock,icon FROM products WHERE user_id=? ORDER BY id').all(req.user.id)));
+function validate(b){const {name,sku,category,price,stock}=b||{}; if(typeof name!=='string'||!name.trim()||typeof sku!=='string'||!sku.trim()||typeof category!=='string'||!category.trim()||typeof price!=='number'||!Number.isFinite(price)||price<0||typeof stock!=='number'||!Number.isInteger(stock)||stock<0)return {error:'Enter valid product details, non-negative price and whole-number stock.'}; return {value:{name:name.trim(),sku:sku.trim(),category:category.trim(),price,stock,icon:typeof b.icon==='string'&&b.icon.trim()?b.icon.trim():'📦'}};}
+app.post('/api/products',auth,(req,res)=>{const v=validate(req.body);if(v.error)return res.status(400).json({error:v.error});try{const i=db.prepare('INSERT INTO products(user_id,name,sku,category,price,stock,icon) VALUES(@user_id,@name,@sku,@category,@price,@stock,@icon)').run({...v.value,user_id:req.user.id});res.status(201).json(db.prepare('SELECT id,name,sku,category,price,stock,icon FROM products WHERE id=? AND user_id=?').get(i.lastInsertRowid,req.user.id));}catch(e){if(String(e.code).includes('CONSTRAINT'))return res.status(409).json({error:'This SKU already exists in your inventory.'});console.error(e);res.status(500).json({error:'Could not create product.'});}});
+app.put('/api/products/:id',auth,(req,res)=>{const id=Number(req.params.id);const v=validate(req.body);if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'Invalid product ID.'});if(v.error)return res.status(400).json({error:v.error});const found=db.prepare('SELECT id FROM products WHERE id=? AND user_id=?').get(id,req.user.id);if(!found)return res.status(404).json({error:'Product not found.'});try{db.prepare('UPDATE products SET name=@name,sku=@sku,category=@category,price=@price,stock=@stock,icon=@icon WHERE id=@id AND user_id=@user_id').run({...v.value,id,user_id:req.user.id});res.json(db.prepare('SELECT id,name,sku,category,price,stock,icon FROM products WHERE id=? AND user_id=?').get(id,req.user.id));}catch(e){if(String(e.code).includes('CONSTRAINT'))return res.status(409).json({error:'This SKU already exists in your inventory.'});res.status(500).json({error:'Could not update product.'});}});
+app.delete('/api/products/:id',auth,(req,res)=>{const result=db.prepare('DELETE FROM products WHERE id=? AND user_id=?').run(Number(req.params.id),req.user.id);if(!result.changes)return res.status(404).json({error:'Product not found.'});res.json({message:'Product deleted successfully.'});});
+app.use((e,req,res,next)=>{if(e instanceof SyntaxError&&'body'in e)return res.status(400).json({error:'Invalid JSON request body.'});console.error(e);res.status(500).json({error:'Unexpected server error.'});});
+const server=app.listen(PORT,()=>console.log(`NEXSTOCK API running at http://localhost:${PORT}\nSQLite: ${path.join(__dirname,'inventory.db')}\nAuth: enabled`));
+function shutdown(){server.close(()=>{db.close();process.exit(0);});} process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
