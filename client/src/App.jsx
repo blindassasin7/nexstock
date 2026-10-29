@@ -1,3 +1,99 @@
+import { useEffect, useMemo, useState } from 'react';
+import { getProducts, createProduct, updateProduct, deleteProduct, register, login, getMe, logout } from './api';
+import './App.css';
+
+const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value || 0);
+const emptyForm = { name: '', sku: '', category: 'Groceries', price: '', stock: '', icon: '📦' };
+const defaultCategories = ['Groceries', 'Beverages', 'Snacks', 'Household', 'Personal Care', 'Other'];
+
+function InventoryApp({ user, onLogout }) {
+  const [products, setProducts] = useState([]);
+  const [apiConnected, setApiConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState('Dashboard');
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('All');
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const categories = useMemo(() => ['All', ...new Set([...defaultCategories, ...products.map(p => p.category).filter(Boolean)])], [products]);
+
+  useEffect(() => {
+    let active = true;
+    getProducts().then(data => { if (active) { setProducts(data); setApiConnected(true); } })
+      .catch(error => { console.error('Could not load products:', error); if (active) { setApiConnected(false); setNotice('Could not connect. Check your internet connection and try refreshing.'); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(''), 3500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const filtered = useMemo(() => products.filter(product => {
+    const matchesSearch = `${product.name} ${product.sku} ${product.category}`.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = category === 'All' || product.category === category;
+    const matchesPage = page !== 'Low Stock' || product.stock <= 10;
+    return matchesSearch && matchesCategory && matchesPage;
+  }), [products, search, category, page]);
+
+  const totalUnits = products.reduce((sum, product) => sum + Number(product.stock || 0), 0);
+  const inventoryValue = products.reduce((sum, product) => sum + Number(product.price || 0) * Number(product.stock || 0), 0);
+  const lowStockProducts = products.filter(product => Number(product.stock) > 0 && Number(product.stock) <= 10);
+  const outOfStockProducts = products.filter(product => Number(product.stock) === 0);
+  const attentionCount = lowStockProducts.length + outOfStockProducts.length;
+  const recentProducts = [...products].slice(0, 5);
+
+  function openAdd() { setEditing(null); setForm({ ...emptyForm }); setShowForm(true); }
+  function openEdit(product) {
+    setEditing(product.id);
+    setForm({ name: product.name, sku: product.sku, category: product.category, price: String(product.price), stock: String(product.stock), icon: product.icon || '📦' });
+    setShowForm(true);
+  }
+  async function saveProduct(event) {
+    event.preventDefault();
+    const name = form.name.trim(); const sku = form.sku.trim(); const price = Number(form.price); const stock = Number(form.stock);
+    if (!name || !sku || form.price === '' || form.stock === '' || !Number.isFinite(price) || price < 0 || !Number.isInteger(stock) || stock < 0) {
+      setNotice('Enter a product name, code, valid price and whole-number quantity.'); return;
+    }
+    if (products.some(p => p.sku.toLowerCase() === sku.toLowerCase() && p.id !== editing)) { setNotice('That product code already exists. Please use a different one.'); return; }
+    const payload = { name, sku, category: form.category, price, stock, icon: form.icon.trim() || '📦' };
+    setBusy(true);
+    try {
+      if (editing !== null) {
+        const updated = await updateProduct(editing, payload);
+        setProducts(current => current.map(p => p.id === editing ? updated : p)); setNotice('Product updated.');
+      } else {
+        const created = await createProduct(payload); setProducts(current => [created, ...current]); setNotice('Product added.');
+      }
+      setApiConnected(true); setShowForm(false);
+    } catch (error) { setNotice(error.message || 'Could not save the product.'); }
+    finally { setBusy(false); }
+  }
+  async function removeProduct(product) {
+    if (!window.confirm(`Delete ${product.name} from your stock?`)) return;
+    try { await deleteProduct(product.id); setProducts(current => current.filter(p => p.id !== product.id)); setNotice('Product deleted.'); }
+    catch (error) { setNotice(error.message || 'Could not delete the product.'); }
+  }
+  async function changeStock(product, amount) {
+    const nextStock = Math.max(0, Number(product.stock) + amount);
+    if (nextStock === Number(product.stock)) { setNotice('Stock cannot go below zero.'); return; }
+    try {
+      const updated = await updateProduct(product.id, { name: product.name, sku: product.sku, category: product.category, price: product.price, stock: nextStock, icon: product.icon || '📦' });
+      setProducts(current => current.map(p => p.id === product.id ? updated : p)); setNotice(`${product.name}: quantity is now ${updated.stock}.`);
+    } catch (error) { setNotice(error.message || 'Could not update stock.'); }
+  }
+  function exportCSV() {
+    const rows = [['Product', 'Code', 'Category', 'Price (INR)', 'Quantity', 'Stock Value'], ...products.map(p => [p.name, p.sku, p.category, p.price, p.stock, p.price * p.stock])];
+    const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a');
+    link.href = url; link.download = 'stockease-inventory.csv'; link.click(); URL.revokeObjectURL(url); setNotice('Stock list downloaded.');
+  }
   const navItems = [
     { name: 'Dashboard', icon: '⌂' }, { name: 'Products', icon: '▦' }, { name: 'Add Product', icon: '＋', action: openAdd },
     { name: 'Stock List', icon: '☷' }, { name: 'Low Stock', icon: '⚠', count: attentionCount }, { name: 'Categories', icon: '◆' },
@@ -55,49 +151,6 @@
   </div>;
 }
 
-function AdminApp({ user, onLogout }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [busyId, setBusyId] = useState(null);
-  async function refresh() {
-    setLoading(true); setError('');
-    try { setData(await getAdminOverview()); }
-    catch (err) { setError(err.message || 'Could not load admin data.'); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { refresh(); }, []);
-  async function toggleShop(shop) {
-    const status = shop.status === 'active' ? 'suspended' : 'active';
-    if (!window.confirm(`${status === 'suspended' ? 'Suspend' : 'Activate'} ${shop.name || shop.email}?`)) return;
-    setBusyId(shop.id);
-    try { await updateShopStatus(shop.id, status); await refresh(); }
-    catch (err) { setError(err.message || 'Could not update shop status.'); }
-    finally { setBusyId(null); }
-  }
-  const stats = data?.stats || {};
-  const cardStyle = { background:'#fff', border:'1px solid #e5edf5', borderRadius:14, padding:'20px', boxShadow:'0 4px 16px rgba(30,55,90,.04)' };
-  return <div style={{minHeight:'100vh',background:'#f6f8fb',color:'#10203e',fontFamily:'system-ui, sans-serif'}}>
-    <header style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:16,padding:'18px clamp(16px,4vw,48px)',background:'#fff',borderBottom:'1px solid #e5edf5'}}>
-      <div><div style={{fontWeight:900,fontSize:24}}>Stock<span style={{color:'#09a86d'}}>Ease</span> <span style={{fontSize:12,color:'#657791'}}>ADMIN</span></div><div style={{fontSize:12,color:'#657791',marginTop:4}}>Platform control centre</div></div>
-      <div style={{display:'flex',alignItems:'center',gap:12}}><span style={{fontSize:13,color:'#536783'}}>{user?.name || user?.email}</span><button className="button button-light" onClick={onLogout}>Logout</button></div>
-    </header>
-    <main style={{maxWidth:1400,margin:'0 auto',padding:'28px clamp(16px,4vw,48px)'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:22}}><div><h1 style={{margin:'0 0 6px',fontSize:30}}>Admin dashboard</h1><p style={{margin:0,color:'#657791'}}>Manage shopkeeper accounts and monitor StockEase.</p></div><button className="button button-primary" onClick={refresh} disabled={loading}>{loading?'Refreshing…':'↻ Refresh'}</button></div>
-      {error && <div className="auth-error" style={{marginBottom:16}}>{error}</div>}
-      <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:14,marginBottom:24}}>
-        {[['Registered shops',stats.totalShops??'—','🏪'],['Active shops',stats.activeShops??'—','✓'],['Suspended shops',stats.suspendedShops??'—','⏸'],['Products tracked',stats.totalProducts??'—','📦'],['Units in stock',stats.totalUnits??'—','▦'],['Inventory value',stats.inventoryValue==null?'—':money(stats.inventoryValue),'₹']].map(([label,value,icon])=><article key={label} style={cardStyle}><div style={{fontSize:22}}>{icon}</div><div style={{fontSize:12,color:'#657791',marginTop:12}}>{label}</div><div style={{fontSize:26,fontWeight:850,marginTop:4,overflowWrap:'anywhere'}}>{value}</div></article>)}
-      </section>
-      <section style={{...cardStyle,padding:0,overflow:'hidden'}}><div style={{padding:'18px 20px',borderBottom:'1px solid #e5edf5'}}><h2 style={{margin:0,fontSize:19}}>Shopkeeper accounts</h2><p style={{margin:'5px 0 0',fontSize:12,color:'#657791'}}>Account status changes are enforced by the backend.</p></div>
-        {loading && <p style={{padding:20,color:'#657791'}}>Loading shop accounts…</p>}
-        {!loading && !data?.shops?.length && <p style={{padding:20,color:'#657791'}}>No shopkeeper accounts found yet. New registrations will appear here.</p>}
-        {!!data?.shops?.length && <div style={{overflowX:'auto'}}><table style={{minWidth:760}}><thead><tr><th>Shopkeeper</th><th>Email</th><th>Products</th><th>Units</th><th>Status</th><th>Action</th></tr></thead><tbody>{data.shops.map(shop=><tr key={shop.id}><td>{shop.name || '—'}</td><td>{shop.email}</td><td>{shop.product_count}</td><td>{shop.total_units}</td><td><span className={`status-pill ${shop.status==='active'?'status-good':'status-out'}`}>{shop.status}</span></td><td><button className="outline-button" disabled={busyId===shop.id} onClick={()=>toggleShop(shop)}>{busyId===shop.id?'Saving…':shop.status==='active'?'Suspend':'Activate'}</button></td></tr>)}</tbody></table></div>}
-      </section>
-      <p style={{fontSize:11,color:'#7b8ba0',marginTop:18}}>Admin access is controlled by the server. Public registration cannot grant admin privileges.</p>
-    </main>
-  </div>;
-}
-
 function App() {
   const [user, setUser] = useState(null); const [checking, setChecking] = useState(true); const [mode, setMode] = useState('login');
   const [fullName, setFullName] = useState(''); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [confirmPassword, setConfirmPassword] = useState(''); const [error, setError] = useState(''); const [working, setWorking] = useState(false);
@@ -112,6 +165,6 @@ function App() {
     {mode === 'register' && <><label htmlFor="auth-confirm-password">Confirm Password</label><input id="auth-confirm-password" type="password" autoComplete="new-password" placeholder="Enter password again" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} minLength={8} required/></>}
     {error && <div className="auth-error">{error}</div>}<button className="auth-submit" type="submit" disabled={working}>{working ? 'Please wait…' : mode === 'login' ? 'Sign In →' : 'Create Account →'}</button><div className="auth-switch">{mode === 'login' ? 'New to StockEase?' : 'Already have an account?'} <button type="button" onClick={()=>{setMode(mode==='login'?'register':'login');setError('');setPassword('');setConfirmPassword('');}}>{mode==='login'?'Create account':'Sign in'}</button></div><div className="auth-security"><span/> Your shop inventory is private to your account</div>
   </form></div>;
-  return user.role === 'admin' ? <AdminApp user={user} onLogout={signOut}/> : <InventoryApp user={user} onLogout={signOut}/>;
+  return <InventoryApp user={user} onLogout={signOut}/>;
 }
 export default App;
