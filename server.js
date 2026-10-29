@@ -32,9 +32,13 @@ async function initializeDatabase() {
       name TEXT NOT NULL DEFAULT '',
       email TEXT NOT NULL,
       password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'shopkeeper' CHECK (role IN ('admin', 'shopkeeper')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'shopkeeper';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
     CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique
       ON users (LOWER(email));
 
@@ -61,6 +65,12 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS sessions_user_id_idx
       ON sessions (user_id);
   `);
+
+  // Promote only the explicitly configured account. Never accept a role from public signup.
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (adminEmail) {
+    await pool.query("UPDATE users SET role = 'admin' WHERE LOWER(email) = $1", [adminEmail]);
+  }
 }
 
 function hashPassword(
@@ -113,7 +123,7 @@ async function auth(req, res, next) {
     }
 
     const result = await pool.query(
-      `SELECT s.user_id, u.email
+      `SELECT s.user_id, u.email, u.name, u.role, u.status
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = $1 AND s.expires_at > $2`,
@@ -126,15 +136,27 @@ async function auth(req, res, next) {
       });
     }
 
+    if (result.rows[0].status === 'suspended') {
+      return res.status(403).json({ error: 'This shop account is suspended. Contact StockEase support.' });
+    }
+
     req.user = {
       id: result.rows[0].user_id,
-      email: result.rows[0].email
+      email: result.rows[0].email,
+      name: result.rows[0].name,
+      role: result.rows[0].role,
+      status: result.rows[0].status
     };
 
     next();
   } catch (err) {
     next(err);
   }
+}
+
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Administrator access required.' });
+  next();
 }
 
 function validate(body) {
@@ -196,7 +218,7 @@ app.post('/api/auth/register', async (req, res, next) => {
     const result = await pool.query(
       `INSERT INTO users (name, email, password_hash)
        VALUES ($1, $2, $3)
-       RETURNING id, name, email`,
+       RETURNING id, name, email, role, status`,
       [name, email, hashPassword(password)]
     );
 
@@ -222,7 +244,7 @@ app.post('/api/auth/login', async (req, res, next) => {
     const password = String(req.body?.password || '');
 
     const result = await pool.query(
-      `SELECT id, name, email, password_hash
+      `SELECT id, name, email, password_hash, role, status
        FROM users WHERE LOWER(email) = $1`,
       [email]
     );
@@ -235,15 +257,15 @@ app.post('/api/auth/login', async (req, res, next) => {
       });
     }
 
+    if (user.status === 'suspended') {
+      return res.status(403).json({ error: 'This shop account is suspended. Contact StockEase support.' });
+    }
+
     const token = await issueSession(user.id);
 
     res.json({
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email
-      }
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status }
     });
   } catch (err) {
     next(err);
@@ -293,6 +315,55 @@ app.get('/api/health', async (req, res) => {
       message: 'Database connection failed.'
     });
   }
+});
+
+
+// ADMIN OVERVIEW: only the configured admin account can access these routes.
+app.get('/api/admin/overview', auth, requireAdmin, async (req, res, next) => {
+  try {
+    const [users, products] = await Promise.all([
+      pool.query(`SELECT u.id, u.name, u.email, u.role, u.status, u.created_at,
+                         COUNT(p.id)::int AS product_count,
+                         COALESCE(SUM(p.stock), 0)::bigint AS total_units
+                  FROM users u LEFT JOIN products p ON p.user_id = u.id
+                  WHERE u.role = 'shopkeeper'
+                  GROUP BY u.id ORDER BY u.created_at DESC`),
+      pool.query(`SELECT COUNT(*)::int AS product_count,
+                         COUNT(DISTINCT user_id)::int AS shops_with_products,
+                         COALESCE(SUM(stock),0)::bigint AS total_units,
+                         COALESCE(SUM(price * stock),0)::numeric AS inventory_value
+                  FROM products`)
+    ]);
+    const shopkeepers = users.rows;
+    res.json({
+      stats: {
+        totalShops: shopkeepers.length,
+        activeShops: shopkeepers.filter(u => u.status === 'active').length,
+        suspendedShops: shopkeepers.filter(u => u.status === 'suspended').length,
+        totalProducts: Number(products.rows[0].product_count),
+        totalUnits: Number(products.rows[0].total_units),
+        inventoryValue: Number(products.rows[0].inventory_value)
+      },
+      shops: shopkeepers
+    });
+  } catch (err) { next(err); }
+});
+
+app.patch('/api/admin/shops/:id/status', auth, requireAdmin, async (req, res, next) => {
+  const id = Number(req.params.id);
+  const status = req.body?.status;
+  if (!Number.isSafeInteger(id) || id < 1 || !['active', 'suspended'].includes(status)) {
+    return res.status(400).json({ error: 'Provide a valid shop ID and status.' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE users SET status = $1 WHERE id = $2 AND role = 'shopkeeper'
+       RETURNING id, name, email, role, status`, [status, id]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Shopkeeper not found.' });
+    if (status === 'suspended') await pool.query('DELETE FROM sessions WHERE user_id = $1', [id]);
+    res.json({ shop: result.rows[0] });
+  } catch (err) { next(err); }
 });
 
 // GET PRODUCTS
