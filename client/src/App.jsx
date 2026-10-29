@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getProducts, createProduct, updateProduct, deleteProduct, register, login, getMe, logout, getAdminOverview, updateShopStatus } from './api';
+import { getProducts, createProduct, updateProduct, deleteProduct, register, login, getMe, logout, getAdminOverview, setShopStatus } from './api';
 import './App.css';
 
 const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value || 0);
@@ -167,7 +167,7 @@ function AdminApp({ user, onLogout }) {
     const status = shop.status === 'active' ? 'suspended' : 'active';
     if (!window.confirm(`${status === 'suspended' ? 'Suspend' : 'Activate'} ${shop.name || shop.email}?`)) return;
     setBusyId(shop.id);
-    try { await updateShopStatus(shop.id, status); await refresh(); }
+    try { await setShopStatus(shop.id, status); await refresh(); }
     catch (err) { setError(err.message || 'Could not update shop status.'); }
     finally { setBusyId(null); }
   }
