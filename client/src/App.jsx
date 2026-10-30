@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getProducts, createProduct, updateProduct, deleteProduct, register, login, getMe, logout, getAdminOverview, setShopStatus } from './api';
 import './App.css';
+import './cosmos-theme.css';
 
 const money = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value || 0);
 const emptyForm = { name: '', sku: '', category: 'Groceries', price: '', stock: '', icon: '📦' };
