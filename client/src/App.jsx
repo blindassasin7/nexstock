@@ -93,7 +93,7 @@ function InventoryApp({ user, onLogout }) {
     const rows = [['Product', 'Code', 'Category', 'Price (INR)', 'Quantity', 'Stock Value'], ...products.map(p => [p.name, p.sku, p.category, p.price, p.stock, p.price * p.stock])];
     const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const url = URL.createObjectURL(blob); const link = document.createElement('a');
-    link.href = url; link.download = 'stockease-inventory.csv'; link.click(); URL.revokeObjectURL(url); setNotice('Stock list downloaded.');
+    link.href = url; link.download = 'NEXSTOCK-inventory.csv'; link.click(); URL.revokeObjectURL(url); setNotice('Stock list downloaded.');
   }
   const navItems = [
     { name: 'Dashboard', icon: '⌂' }, { name: 'Products', icon: '▦' }, { name: 'Add Product', icon: '＋', action: openAdd },
@@ -143,7 +143,7 @@ function InventoryApp({ user, onLogout }) {
               <section className="panel low-stock-panel"><div className="mini-panel-heading"><div><span className="mini-heading-icon alert-icon">⚠</span><h3>Low Stock Alert</h3></div><button onClick={() => navigate('Low Stock')}>View all →</button></div>{[...lowStockProducts, ...outOfStockProducts].slice(0,4).length ? [...lowStockProducts, ...outOfStockProducts].slice(0,4).map(p => <div className="alert-row" key={p.id}><span className="alert-product-icon">{p.icon || '📦'}</span><strong>{p.name}</strong><span>{p.stock === 0 ? 'Out' : `${p.stock} left`}</span></div>) : <div className="all-good"><span>✓</span><p>Everything looks good. No low-stock items.</p></div>}</section></aside>}
           </div>
         </>}
-        <footer className="app-footer"><span>🛍 <strong>StockEase</strong> <small>YOUR SHOP, MADE SIMPLE</small></span><span>{apiConnected ? 'Your inventory is connected' : 'Inventory workspace'}</span></footer>
+        <footer className="app-footer"><span>🛍 <strong>NEXSTOCK</strong> <small>YOUR SHOP, MADE SIMPLE</small></span><span>{apiConnected ? 'Your inventory is connected' : 'Inventory workspace'}</span></footer>
       </div>
     </main>
     {notice && <div className="toast"><span>✓</span>{notice}</div>}
@@ -180,7 +180,7 @@ function AdminApp({ user, onLogout }) {
       <div style={{display:'flex',alignItems:'center',gap:12}}><span style={{fontSize:13,color:'#536783'}}>{user?.name || user?.email}</span><button className="button button-light" onClick={onLogout}>Logout</button></div>
     </header>
     <main style={{maxWidth:1400,margin:'0 auto',padding:'28px clamp(16px,4vw,48px)'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:22}}><div><h1 style={{margin:'0 0 6px',fontSize:30}}>Admin dashboard</h1><p style={{margin:0,color:'#657791'}}>Manage shopkeeper accounts and monitor StockEase.</p></div><button className="button button-primary" onClick={refresh} disabled={loading}>{loading?'Refreshing…':'↻ Refresh'}</button></div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:22}}><div><h1 style={{margin:'0 0 6px',fontSize:30}}>Admin dashboard</h1><p style={{margin:0,color:'#657791'}}>Manage shopkeeper accounts and monitor NEXSTOCK.</p></div><button className="button button-primary" onClick={refresh} disabled={loading}>{loading?'Refreshing…':'↻ Refresh'}</button></div>
       {error && <div className="auth-error" style={{marginBottom:16}}>{error}</div>}
       <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:14,marginBottom:24}}>
         {[['Registered shops',stats.totalShops??'—','🏪'],['Active shops',stats.activeShops??'—','✓'],['Suspended shops',stats.suspendedShops??'—','⏸'],['Products tracked',stats.totalProducts??'—','📦'],['Units in stock',stats.totalUnits??'—','▦'],['Inventory value',stats.inventoryValue==null?'—':money(stats.inventoryValue),'₹']].map(([label,value,icon])=><article key={label} style={cardStyle}><div style={{fontSize:22}}>{icon}</div><div style={{fontSize:12,color:'#657791',marginTop:12}}>{label}</div><div style={{fontSize:26,fontWeight:850,marginTop:4,overflowWrap:'anywhere'}}>{value}</div></article>)}
@@ -207,7 +207,7 @@ function App() {
     <label htmlFor="auth-email">Email Address</label><input id="auth-email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e=>setEmail(e.target.value)} required/>
     <label htmlFor="auth-password">Password</label><input id="auth-password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder={mode === 'login' ? 'Enter your password' : 'At least 8 characters'} value={password} onChange={e=>setPassword(e.target.value)} minLength={mode === 'login' ? 1 : 8} required/>
     {mode === 'register' && <><label htmlFor="auth-confirm-password">Confirm Password</label><input id="auth-confirm-password" type="password" autoComplete="new-password" placeholder="Enter password again" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} minLength={8} required/></>}
-    {error && <div className="auth-error">{error}</div>}<button className="auth-submit" type="submit" disabled={working}>{working ? 'Please wait…' : mode === 'login' ? 'Sign In →' : 'Create Account →'}</button><div className="auth-switch">{mode === 'login' ? 'New to StockEase?' : 'Already have an account?'} <button type="button" onClick={()=>{setMode(mode==='login'?'register':'login');setError('');setPassword('');setConfirmPassword('');}}>{mode==='login'?'Create account':'Sign in'}</button></div><div className="auth-security"><span/> Your shop inventory is private to your account</div>
+    {error && <div className="auth-error">{error}</div>}<button className="auth-submit" type="submit" disabled={working}>{working ? 'Please wait…' : mode === 'login' ? 'Sign In →' : 'Create Account →'}</button><div className="auth-switch">{mode === 'login' ? 'New to NEXSTOCK?' : 'Already have an account?'} <button type="button" onClick={()=>{setMode(mode==='login'?'register':'login');setError('');setPassword('');setConfirmPassword('');}}>{mode==='login'?'Create account':'Sign in'}</button></div><div className="auth-security"><span/> Your shop inventory is private to your account</div>
   </form></div>;
   return user.role === 'admin' ? <AdminApp user={user} onLogout={signOut}/> : <InventoryApp user={user} onLogout={signOut}/>;
 }
